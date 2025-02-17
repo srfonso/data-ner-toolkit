@@ -8,7 +8,7 @@ from src.sender import call_service
 from src.data import (
     prepare_new_execution,
     prepare_resume_execution,
-    save_result
+    save_final_result
 )
 from src.settings import (
     DEFAULT_ENDPOINT,
@@ -153,10 +153,10 @@ async def main():
     
     # Determine execution mode: new execution (CSV provided) or resume (execution_id provided)
     if args.command == "new":
-        data_remaining, execution_folder = prepare_new_execution(args)
+        data_remaining, checkpoint_folderpath = prepare_new_execution(args)
         data_existing = ResultData()
     else:
-        data_remaining, data_existing, execution_folder = prepare_resume_execution(args)
+        data_remaining, data_existing, checkpoint_folderpath = prepare_resume_execution(args)
     
     if data_remaining.data:
         start_time = time.time()
@@ -166,7 +166,7 @@ async def main():
             url=args.url,
             max_parallel_requests=args.max_parallel_requests,
             checkpoint_frequency=args.checkpoint_frequency,
-            checkpoint_folder=execution_folder,
+            checkpoint_folderpath=checkpoint_folderpath,
             results=data_existing
         )
         total_time = time.time() - start_time
@@ -176,7 +176,7 @@ async def main():
         logger.info("All items have been processed. Nothing to do.")
 
     if results:
-        save_result(results, execution_folder)
+        save_final_result(results, checkpoint_folderpath)
     
 if __name__ == "__main__":
     try:

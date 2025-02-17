@@ -1,10 +1,13 @@
-import re
+import os
 import json
 import time
 import logging
 import aiohttp
 import asyncio
-import os
+from aiohttp.web_exceptions import HTTPException
+from aiohttp.client_exceptions import ClientOSError, ClientResponseError, ContentTypeError
+from src.models import InputData, TextEntities, ResultData
+from src.data import save_checkpoint
 from src.settings import (
     DEFAULT_BATCH_SIZE, 
     DEFAULT_MAX_PARALLEL_REQUESTS,
@@ -14,9 +17,6 @@ from src.settings import (
     MAX_TIMEOUT_SERVICES,
     DEFAULT_APIKEY
 )
-from src.models import GeneralEncoder, InputData, TextEntities, ResultData
-from aiohttp.web_exceptions import HTTPException
-from aiohttp.client_exceptions import ClientOSError, ClientResponseError, ContentTypeError
 
 
 # Get an instance of a logger
@@ -76,7 +76,7 @@ async def call_service(
     max_parallel_requests: int = DEFAULT_MAX_PARALLEL_REQUESTS, 
     max_data_by_request: int = DEFAULT_MAX_DATA_BY_REQUEST,
     checkpoint_frequency: int = DEFAULT_CHECKPOINT_FREQUENCY, 
-    checkpoint_folder: str = DEFAULT_CHECKPOINT_FOLDER, 
+    checkpoint_folderpath: str = DEFAULT_CHECKPOINT_FOLDER, 
     results: ResultData = ResultData(),
     batch_size: int = DEFAULT_BATCH_SIZE, 
 ):
@@ -85,28 +85,28 @@ async def call_service(
 
     Parameters
     ----------
-    input_data : InputData
+    input_data: InputData
         Data model instance containing data to send and process.
     
-    url : str
+    url: str
         The API endpoint URL.
     
-    max_parallel_requests : int, default = DEFAULT_MAX_PARALLEL_REQUESTS
+    max_parallel_requests: int, default = DEFAULT_MAX_PARALLEL_REQUESTS
         Maximum number of parallel requests.
 
-    max_data_by_request : int, default = DEFAULT_MAX_DATA_BY_REQUEST
+    max_data_by_request: int, default = DEFAULT_MAX_DATA_BY_REQUEST
         Maximum number of items sent in each request.
 
-    checkpoint_frequency : int, default = DEFAULT_CHECKPOINT_FREQUENCY
+    checkpoint_frequency: int, default = DEFAULT_CHECKPOINT_FREQUENCY
         Number of items to process before creating a checkpoint.
     
-    checkpoint_folder : str, default = DEFAULT_CHECKPOINT_FOLDER
+    checkpoint_folderpath: str, default = DEFAULT_CHECKPOINT_FOLDER
         Folder where checkpoint JSON files are saved.
     
-    results : ResultData, default = ResultData()
+    results: ResultData, default = ResultData()
         List to store new results.
 
-    batch_size : int, default=DEFAULT_BATCH_SIZE
+    batch_size: int, default=DEFAULT_BATCH_SIZE
         Number of requests per batch.        
 
     Returns
@@ -140,11 +140,7 @@ async def call_service(
                 #"types": allowed_types
             }
         ) 
-
-    # Ensure the checkpoint folder exists.
-    if not os.path.exists(checkpoint_folder):
-        os.makedirs(checkpoint_folder)
-    
+   
     # Global progress bar for overall processing.
     from tqdm import tqdm
     global_pbar = tqdm(total=total_items, desc="Processing", unit="item")
@@ -164,7 +160,7 @@ async def call_service(
                     data=json.dumps(payload),
                     bounded_info={},
                     default_return={
-                        "results": []
+                        "results": [] # In case of a request/connection error
                     }
                 )
                 for payload in req_pool[idx: idx + batch_size]
@@ -185,22 +181,8 @@ async def call_service(
         logger.info(f"Batch {(idx//batch_size)+1}/{(len(req_pool)//batch_size) + 1} completed in {batch_elapsed:.3f} secs.")
         
         # If we've reached or exceeded the next checkpoint threshold, perform a checkpoint.
-        results_counter = len(results.data)
-        if results_counter >= next_checkpoint_threshold:
-            # Remove previous checkpoint file if it exists.
-            for filename in os.listdir(checkpoint_folder):
-                if filename.startswith("checkpoint"):
-                    os.remove(os.path.join(checkpoint_folder, filename))
-                    break
-            checkpoint_filename = os.path.join(
-                checkpoint_folder,
-                f"checkpoint_{checkpoint_index}_{results_counter}.json"
-            )
-            with open(checkpoint_filename, "w", encoding="utf-8") as f:
-                json.dump(results.model_dump(), f, ensure_ascii=False, indent=2, cls=GeneralEncoder)
-            logger.info(f"Checkpoint created: {checkpoint_filename} (Total items: {results_counter})")
-
-            checkpoint_index += 1
+        if len(results.data) >= next_checkpoint_threshold:
+            save_checkpoint(results=results, checkpoint_folderpath=checkpoint_folderpath)
             next_checkpoint_threshold += checkpoint_frequency
 
     global_pbar.close()

@@ -2,78 +2,83 @@ import os
 import time
 import json
 import uuid
-import sqlite3
+import shutil
 import logging
 import pandas as pd
-from src.settings import DEFAULT_CHECKPOINT_FOLDER
+from src.settings import DEFAULT_CHECKPOINT_FOLDER, DEFAULT_RESULT_FOLDER
 from src.models import GeneralEncoder, InputData, ResultData
 
 # Get an instance of a logger
 logger = logging.getLogger(__name__)
 
 
-def init_db(db_path: str = "executions.db") -> sqlite3.Connection:
-    """ TODO
-    Initialize the SQLite database and create the 'executions' table if it doesn't exist.
-    The table uses a composite primary key (ID, sub_ID) where:
-      - ID is the main identifier.
-      - sub_ID is optional (defaults to 0 if not provided) and must be unique for the same ID.
-    
-    Parameters
-    ----------
-    db_path : str, default="executions.db"
-        Path to the SQLite database file.
-    
-    Returns
-    -------
-    conn : sqlite3.Connection
-        The connection object to the SQLite database.
-    """
-    # Connect to the SQLite database (it will be created if it doesn't exist)
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    # Create the 'executions' table with a composite primary key (ID, sub_ID)
-    # Note: sub_ID is defined as NOT NULL with a default value (0) to allow its optional nature at insertion time.
-    create_table_query = """
-        CREATE TABLE IF NOT EXISTS executions (
-            ID TEXT NOT NULL,
-            sub_ID INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (ID, sub_ID)
-        );
-    """
-    cursor.execute(create_table_query)
-    conn.commit()
-    return conn
-
-
-def save_result(results: ResultData, execution_folder: str):
+def save_final_result(
+    results: ResultData, 
+    checkpoint_folderpath: str
+):
     """
     Save the final result file with the accumulated results in the execution folder.
     This function first removes any older checkpoint files before saving the final result.
 
     Parameters
     ----------
-    results : ResultData
+    results: ResultData
         List of accumulated results.
-    execution_folder : str
-        Folder where the final result file will be saved.
+    checkpoint_folderpath : str
+        Folder where the checkpoints data is stored.
     """
-    # Remove any older checkpoint files.
-    for filename in os.listdir(execution_folder):
-        if filename.startswith("checkpoint_") and filename.endswith(".json"):
-            file_path = os.path.join(execution_folder, filename)
-            try:
-                os.remove(file_path)
-                logger.info(f"Removed old checkpoint file: {file_path}")
-            except Exception as e:
-                logger.error(f"Error removing file {file_path}: {e}")
 
-    # Save the final result file.
-    final_filename = os.path.join(execution_folder, "final_result.json")
+    # Get result path from checkpoint folder
+    result_folderpath = os.path.join(
+        DEFAULT_RESULT_FOLDER, 
+        os.path.basename(checkpoint_folderpath)
+    )
+
+    # Ensure the checkpoint folder exists.
+    if not os.path.exists(result_folderpath):
+        os.makedirs(result_folderpath)
+
+    # First: Save the final result file.
+    final_filename = os.path.join(result_folderpath, "final_result.json")
     with open(final_filename, "w", encoding="utf-8") as f:
         json.dump(results.model_dump(), f, ensure_ascii=False, indent=2, cls=GeneralEncoder)
+
+    # Then: Remove checkpoint folder.
+    if os.path.exists(checkpoint_folderpath):
+        shutil.rmtree(checkpoint_folderpath)
+        logger.debug(f"Checkpoint folder `{checkpoint_folderpath}` and its contents have been removed.")
+
     logger.info(f"Final result saved: {final_filename}")
+
+
+def save_checkpoint(results: ResultData, checkpoint_folderpath: str):
+    """
+    Save the final result file with the accumulated results in the execution folder.
+    This function first removes any older checkpoint files before saving the final result.
+
+    Parameters
+    ----------
+    results: ResultData
+        List of accumulated results.
+    checkpoint_folder: str
+        Folder where the checkpoint file will be saved.
+    """
+    # Ensure the checkpoint folder exists.
+    if not os.path.exists(checkpoint_folderpath):
+        os.makedirs(checkpoint_folderpath)
+        
+    # Remove previous checkpoint file if it exists.
+    for filename in os.listdir(checkpoint_folderpath):
+        if filename.startswith("checkpoint"):
+            os.remove(os.path.join(checkpoint_folderpath, filename))
+            break
+    checkpoint_filename = os.path.join(
+        checkpoint_folderpath,
+        f"checkpoint_{len(results.data)}.json"
+    )
+    with open(checkpoint_filename, "w", encoding="utf-8") as f:
+        json.dump(results.model_dump(), f, ensure_ascii=False, indent=2, cls=GeneralEncoder)
+    logger.info(f"Checkpoint created: {checkpoint_filename} (Total items: {len(results.data)})")
 
 
 def read_csv_and_generate_data(
@@ -151,21 +156,21 @@ def load_existing_execution(
         Result Data model instance containing the already existing results.
     processed_ids: set
         Set of IDs that have been processed successfully.
-    execution_folder: str
+    checkpoint_folderpath: str
         Path to the execution folder.
     """
-    execution_folder = None
+    checkpoint_folderpath = None
     for folder in os.listdir(base_folder):
         if folder.startswith(execution_id + "_") and os.path.isdir(os.path.join(base_folder, folder)):
-            execution_folder = os.path.join(base_folder, folder)
+            checkpoint_folderpath = os.path.join(base_folder, folder)
             break
-    if not execution_folder:
+    if not checkpoint_folderpath:
         logger.error(f"Execution folder for ID {execution_id} not found in {base_folder}.")
         exit(1)
         
-    data_to_send_path = os.path.join(execution_folder, "data_to_send.json")
+    data_to_send_path = os.path.join(checkpoint_folderpath, "data_to_send.json")
     if not os.path.exists(data_to_send_path):
-        logger.error(f"data_to_send.json not found in {execution_folder}.")
+        logger.error(f"data_to_send.json not found in {checkpoint_folderpath}.")
         exit(1)
     
     with open(data_to_send_path, "r", encoding="utf-8") as f:
@@ -178,19 +183,18 @@ def load_existing_execution(
     processed_ids = set()
     data_existing = ResultData()
     # Read already existing results from the first checkpoint file
-    for filename in os.listdir(execution_folder):
+    for filename in os.listdir(checkpoint_folderpath):
         if filename.startswith("checkpoint"):
-            filepath = os.path.join(execution_folder, filename)
+            filepath = os.path.join(checkpoint_folderpath, filename)
             with open(filepath, "r", encoding="utf-8") as f:
                 checkpoint_data = json.load(f)
                 data_existing = ResultData.model_validate(checkpoint_data)
                 processed_ids = set([
                     f"{item.ID}_{item.subID}"
                     for item in data_existing.data
-                    if item.entities  # checking if entities are not empty (request error)
                 ])
             break  # only process the first checkpoint file found            
-    return data_to_send, data_existing, processed_ids, execution_folder
+    return data_to_send, data_existing, processed_ids, checkpoint_folderpath
 
 
 def prepare_new_execution(args):
@@ -206,8 +210,8 @@ def prepare_new_execution(args):
     -------
     data_model : InputData
         InputData model instance containing payloads.
-    execution_folder : str
-        Path to the execution folder.
+    checkpoint_folderpath : str
+        Path to the checkpoint folder.
     """
     data_model = read_csv_and_generate_data(
         csv_file=args.csv, 
@@ -223,20 +227,20 @@ def prepare_new_execution(args):
     
     execution_id = uuid.uuid4().hex
     start_date = time.strftime("%Y%m%d_%H%M%S")
-    execution_folder = os.path.join(DEFAULT_CHECKPOINT_FOLDER, f"{execution_id}_{start_date}")
-    os.makedirs(execution_folder, exist_ok=True)
+    checkpoint_folderpath = os.path.join(DEFAULT_CHECKPOINT_FOLDER, f"{execution_id}_{start_date}")
+    os.makedirs(checkpoint_folderpath, exist_ok=True)
     
     print(f"New Execution ID: {execution_id}")
-    logger.info(f"New execution folder created: {execution_folder}")
+    logger.info(f"New execution folder created: {checkpoint_folderpath}")
     
-    data_to_send_path = os.path.join(execution_folder, "data_to_send.json")
+    data_to_send_path = os.path.join(checkpoint_folderpath, "data_to_send.json")
     with open(data_to_send_path, "w", encoding="utf-8") as f:
         # file structure -> {"data": [{}, {}...]}
         json.dump(data_model.model_dump(), f, ensure_ascii=False, indent=2, cls=GeneralEncoder)
-    logger.info(f"data_to_send.json saved in {execution_folder}")
+    logger.info(f"data_to_send.json saved in {checkpoint_folderpath}")
     
     # Return the InputData model instance and the execution folder.
-    return data_model, execution_folder
+    return data_model, checkpoint_folderpath
 
 
 def prepare_resume_execution(args) -> tuple[InputData, ResultData, str]:
@@ -254,12 +258,12 @@ def prepare_resume_execution(args) -> tuple[InputData, ResultData, str]:
         Data model instance containing remaining data to be processed.
     data_existing: ResultData
         Result Data model instance containing the already existing results.
-    execution_folder : str
-        Path to the execution folder.
+    checkpoint_folderpath : str
+        Path to the checkpoint folder.
     """
-    data_to_send, data_existing, processed_ids, execution_folder = load_existing_execution(args.execution_id)
+    data_to_send, data_existing, processed_ids, checkpoint_folderpath = load_existing_execution(args.execution_id)
     
-    logger.info(f"Resuming execution '{args.execution_id}' from folder: {execution_folder}")
+    logger.info(f"Resuming execution '{args.execution_id}' from folder: {checkpoint_folderpath}")
     
     # data_to_send is an InputData model instance; iterate over its list of TextItem.
     data_remaining = InputData(
@@ -268,7 +272,4 @@ def prepare_resume_execution(args) -> tuple[InputData, ResultData, str]:
             if f"{item.ID}_{item.sub_ID}" not in processed_ids
         ]
     )
-    if not data_remaining.data:
-        logger.info("All items have been processed. Nothing to do.")
-        exit(0)
-    return data_remaining, data_existing, execution_folder
+    return data_remaining, data_existing, checkpoint_folderpath
