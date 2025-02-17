@@ -1,0 +1,27 @@
+version: "3.3"
+
+services:
+  traefik:
+    image: "traefik:latest"
+    container_name: "traefik"
+    command:
+      #- "--log.level=DEBUG"
+      - --ping=true
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+    ports:
+      - "65430:80"
+      - "65438:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      #- arwen: "/run/docker.sock:/var/run/docker.sock:ro"
+    networks:
+      ner_service_net:
+        aliases:
+          - reverse-proxy
+
+networks:
+  ner_service_net:
+    driver: bridge

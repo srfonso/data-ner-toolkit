@@ -1,0 +1,5 @@
+# Ignore everything by default
+**
+
+# Exception: Allow 'allowed_folder/'
+!api_ner/
