@@ -158,19 +158,23 @@ async def main():
     else:
         data_remaining, data_existing, execution_folder = prepare_resume_execution(args)
     
-    start_time = time.time()
-    results = await call_service(
-        input_data=data_remaining,
-        lang=args.lang,
-        url=args.url,
-        max_parallel_requests=args.max_parallel_requests,
-        checkpoint_frequency=args.checkpoint_frequency,
-        checkpoint_folder=execution_folder,
-        results=data_existing
-    )
-    results = []
-    total_time = time.time() - start_time
-    logger.info(f"Processing completed in {total_time:.3f} secs.")
+    if data_remaining.data:
+        start_time = time.time()
+        results = await call_service(
+            input_data=data_remaining,
+            lang=args.lang,
+            url=args.url,
+            max_parallel_requests=args.max_parallel_requests,
+            checkpoint_frequency=args.checkpoint_frequency,
+            checkpoint_folder=execution_folder,
+            results=data_existing
+        )
+        total_time = time.time() - start_time
+        logger.info(f"Processing completed in {total_time:.3f} secs.")
+    else:
+        results = data_existing
+        logger.info("All items have been processed. Nothing to do.")
+
     if results:
         save_result(results, execution_folder)
     
