@@ -1,11 +1,11 @@
 import os
 import json
 import time
-import logging
 import aiohttp
 import asyncio
 from aiohttp.web_exceptions import HTTPException
 from aiohttp.client_exceptions import ClientOSError, ClientResponseError, ContentTypeError
+from src.logs import setup_logging
 from src.models import InputData, TextEntities, ResultData
 from src.data import save_checkpoint
 from src.settings import (
@@ -15,12 +15,13 @@ from src.settings import (
     DEFAULT_CHECKPOINT_FREQUENCY,
     DEFAULT_CHECKPOINT_FOLDER,
     MAX_TIMEOUT_SERVICES,
+    DEFAULT_APIKEY_HEADER,
     DEFAULT_APIKEY
 )
 
 
 # Get an instance of a logger
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 
 async def async_session_cpm(service_url, session, data, bounded_info={}, default_return={}):
@@ -115,7 +116,6 @@ async def call_service(
         Result Data model instance containing the already existing results.
     """
     timeout = aiohttp.ClientTimeout(total=MAX_TIMEOUT_SERVICES)
-    checkpoint_index = 1
     next_checkpoint_threshold = checkpoint_frequency  # next threshold to trigger checkpoint
     
     # Pre-Build all request for API NER in order to subsequently correctly control its execution
@@ -151,7 +151,10 @@ async def call_service(
             connector=aiohttp.TCPConnector(limit=max_parallel_requests),
             timeout=timeout,
             raise_for_status=True,
-            headers={"Content-Type": "application/json", "ApiKey": DEFAULT_APIKEY}
+            headers={
+                "Content-Type": "application/json", 
+                DEFAULT_APIKEY_HEADER: DEFAULT_APIKEY
+            }
         ) as session:
             tasks = [
                 async_session_cpm(
