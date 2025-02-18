@@ -1,4 +1,4 @@
-uvicorn==0.22.0
-fastapi==0.115.4
-spacy==3.7.2
+uvicorn==0.34.0
+fastapi==0.115.8
+spacy==3.8.4
 python-multipart==0.0.20
