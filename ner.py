@@ -23,7 +23,7 @@ logger = setup_logging(__name__)
 
 def parse_args():
     """
-    Parse command-line arguments for the LLM tool using subparsers for
+    Parse command-line arguments for the NER tool using subparsers for
     separate "new" and "resume" commands.
 
     Returns
@@ -32,7 +32,7 @@ def parse_args():
         Parsed command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description="Tool to interact with Ollama LLM."
+        description="Tool for processing NER."
     )
     # General arguments shared by both commands.
     group_g = parser.add_argument_group("General arguments")
