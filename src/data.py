@@ -3,13 +3,14 @@ import time
 import json
 import uuid
 import shutil
-import logging
 import pandas as pd
+from src.logs import setup_logging
 from src.settings import DEFAULT_CHECKPOINT_FOLDER, DEFAULT_RESULT_FOLDER
 from src.models import GeneralEncoder, InputData, ResultData
 
+
 # Get an instance of a logger
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 
 def save_final_result(
@@ -66,7 +67,7 @@ def save_checkpoint(results: ResultData, checkpoint_folderpath: str):
     # Ensure the checkpoint folder exists.
     if not os.path.exists(checkpoint_folderpath):
         os.makedirs(checkpoint_folderpath)
-        
+
     # Remove previous checkpoint file if it exists.
     for filename in os.listdir(checkpoint_folderpath):
         if filename.startswith("checkpoint"):

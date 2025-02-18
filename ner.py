@@ -2,9 +2,9 @@ import os
 import time
 import argparse
 import asyncio
-import logging
 from src.models import ResultData
 from src.sender import call_service
+from src.logs import setup_logging, valid_loglevel, configure_logging
 from src.data import (
     prepare_new_execution,
     prepare_resume_execution,
@@ -14,25 +14,11 @@ from src.settings import (
     DEFAULT_ENDPOINT,
     DEFAULT_MAX_PARALLEL_REQUESTS,
     DEFAULT_CHECKPOINT_FREQUENCY,
-    LOG_DIR,
-)
-
-
-# Logger configuration (using LOG_DIR from settings.py)
-if not os.path.exists(LOG_DIR):
-    os.makedirs(LOG_DIR)
-log_file = os.path.join(LOG_DIR, "file.log")
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler(log_file, encoding="utf-8")
-    ]
 )
 
 
 # Get an instance of a logger
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 
 def parse_args():
@@ -51,12 +37,12 @@ def parse_args():
     # General arguments shared by both commands.
     group_g = parser.add_argument_group("General arguments")
     group_g.add_argument(
-        "-L", "--loglevel", 
-        dest="log_level",
-        type=str,
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Logger level. (default: INFO)"
+        '-L', '--loglevel', 
+        dest='loglevel',
+        metavar='LEVEL', 
+        default='ERROR',
+        help=f'log level (default: WARNING). F.e: ["INFO", "DEBUG", "WARNING", "ERROR"]',
+        type=valid_loglevel
     )
     group_g.add_argument(
         "--url",
@@ -148,8 +134,7 @@ async def main():
     and manage the overall execution flow.
     """
     args = parse_args()
-    numeric_level = getattr(logging, args.log_level.upper(), logging.INFO)
-    logging.getLogger().setLevel(numeric_level)
+    configure_logging(args.loglevel)
     
     # Determine execution mode: new execution (CSV provided) or resume (execution_id provided)
     if args.command == "new":
